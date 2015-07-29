@@ -6,14 +6,37 @@ import re
 import readline
 from pydrive.auth import GoogleAuth
 from pydrive.drive import GoogleDrive 
+
 g={
-    'local_path':'None',
-    'remote_path':'None',
-    'remote_userid':'None',
-    'remote_password':'None',
     'project_name':'None',
-    'local_repository':'D:\\local\\SGitRep\\',
-    'remote_repository_id':'0B3TOE2du_D-zfjNtVWV1U3IzNThqV2NmQzJNWU5iMXZCX3JvWFlpZ0doSjFvc290OFZ3RGs'}
+    'local_repository':'None',
+    'remote_repository_id':'None'
+}
+def check_conifg():
+    bBadPropertyFlag=False
+    for k,v in g.items():
+        if v=='None': 
+            print k,'=',v ,"-> should be set a value"
+            bBadPropertyFlag = True    
+    if bBadPropertyFlag:
+        return False 
+
+    if g['local_repository'][-1] != '\\':
+        g['local_repository'] +='\\'
+
+    if not os.path.isdir(g['local_repository']):
+        print "%s is not exist directory" % (g['local_repository'])
+        return False
+
+    return True 
+
+
+
+# g={
+#     'project_name':'SGit',
+#     'local_repository':'D:\\local\\SGitRep\\',
+#     'remote_repository_id':'0B3TOE2du_D-zfjNtVWV1U3IzNThqV2NmQzJNWU5iMXZCX3JvWFlpZ0doSjFvc290OFZ3RGs'
+# }
 PROPERTIES =[ k for k in g.keys() ]
 COMMANDS = ['set', 'get', 'showallproperty', 'commit', 'exit']
 PATTERN_ZIP = r'^PN[\w]{1,30}-PS[\d]{3,3}-VR[\d]{1,4}\.[\d]{1,4}\.[\d]{1,4}-DT[\d]{8,8}_[\d]{6,6}-DC[\w_]{1,30}$'
@@ -124,7 +147,6 @@ def get_next_proj_seq(path):
     elements = flist[0].split('-')    
     ps =int(elements[1][2:])
     v1,v2,v3 = map(int,elements[2][2:].split('.'))
-    print "----", ps , v1,v2,v3
     return ps+1,"{}.{}.{}".format(v1,v2,v3+1)
 def create_deposit_filename(version='auto',desc='None'):
     p_desc = re.compile(PATTERN_DESC)
@@ -137,7 +159,6 @@ def create_deposit_filename(version='auto',desc='None'):
 
     project_path = g['local_repository'] + g['project_name']+ '\\'
     next_ps,next_vr = get_next_proj_seq(project_path)
-    print next_ps , next_vr 
     if version != 'auto': next_vr = version
     PN = 'PN{0}'.format( g['project_name'] )
     PS = 'PS{0:03}'.format( next_ps )
@@ -180,11 +201,18 @@ def get_config( property ):
     else :
         return "Undefined property"
 def load_config():
-    with open("config.ini",'r') as f:
-        lines = f.readlines()
-    for line in lines:
-        p,v = line.split('=')
-        g[p]=v.rstrip()
+    try:
+        with open("config.ini",'r') as f:
+            lines = f.readlines()
+            for line in lines:
+                p,v = line.split('=')
+                p = p.strip()
+                v = v.strip()
+                if p in g.keys():
+                    g[p] = v 
+    except (OSError, IOError) as e:
+        save_config()
+    
     # show_config()
 def save_config():
     with open('config.ini','w') as f :
@@ -221,10 +249,11 @@ def cmd_loop():
                 print "example: get <property>\n   get project_name"
         elif cmd[0] =='showallproperty':
             show_config()
-        elif cmd[0]=='commit'
+        elif cmd[0]=='commit':
             commit_local()
-        elif cmd[0]=='push'
-            push_remote(g['local_repository'],g['remote_repository_id'])
+        elif cmd[0]=='push':
+            project_path = g['local_repository'] + g['project_name']+ '\\'
+            push_remote( project_path, g['remote_repository_id'] )
         elif cmd[0]=='exit':
             break;
         elif cmd[0]=='version':
@@ -240,7 +269,8 @@ def push_remote(local_path,remote_targetdir_id):
     @param remote_targetdir_id: target directory id. ex) dlkjfaljdflk_dfkdk1334343_ADFD000090
     @return:
     """
-    if not (gauth = GoogleAuth("./auth/settings.yaml")) : return None 
+    gauth = GoogleAuth("./auth/settings.yaml")
+    if not gauth : return None 
     drive = GoogleDrive(gauth)
     upinfo={
         "title" : "exampe.png",
@@ -270,6 +300,9 @@ def push_remote(local_path,remote_targetdir_id):
 if __name__ == '__main__':
     # load ini file 
     load_config()
+
+    check_conifg() 
+
     # for command auto-completion
     readline.set_completer_delims(' \t\n;')
     readline.parse_and_bind("tab: complete")
