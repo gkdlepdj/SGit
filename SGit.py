@@ -6,44 +6,30 @@ import re
 import readline
 from pydrive.auth import GoogleAuth
 from pydrive.drive import GoogleDrive 
-
-g={
-    'project_name':'None',
+g_property = {
+    # project name 
+    'project_name':'None', 
+    # local repository path 
     'local_repository':'None',
+    # google drive folder id 
     'remote_repository_id':'None'
 }
-def check_conifg():
-    bBadPropertyFlag=False
-    for k,v in g.items():
-        if v=='None': 
-            print k,'=',v ,"-> should be set a value"
-            bBadPropertyFlag = True    
-    if bBadPropertyFlag:
-        return False 
-
-    if g['local_repository'][-1] != '\\':
-        g['local_repository'] +='\\'
-
-    if not os.path.isdir(g['local_repository']):
-        print "%s is not exist directory" % (g['local_repository'])
-        return False
-
-    return True 
-
-
-
-# g={
-#     'project_name':'SGit',
-#     'local_repository':'D:\\local\\SGitRep\\',
-#     'remote_repository_id':'0B3TOE2du_D-zfjNtVWV1U3IzNThqV2NmQzJNWU5iMXZCX3JvWFlpZ0doSjFvc290OFZ3RGs'
-# }
-PROPERTIES =[ k for k in g.keys() ]
-COMMANDS = ['set', 'get', 'showallproperty', 'commit', 'exit']
+# list of properties
+PROPERTIES =[ k for k in g_property.keys() ]
+# list of commands 
+COMMANDS = ['set', 'get', 'showallproperty', 'commit', 'exit','showcommit','push','commit','version']
+# PN<project name>-PS< 3 digits sequence number>-VR< 1.2.12 >-DT<yyyymmdd_hhmmss>-DC<dsecripition of commit>
+# PNSGit-PS001-VR0.3.2-DT20150301_111134-DSNone.zip 
 PATTERN_ZIP = r'^PN[\w]{1,30}-PS[\d]{3,3}-VR[\d]{1,4}\.[\d]{1,4}\.[\d]{1,4}-DT[\d]{8,8}_[\d]{6,6}-DC[\w_]{1,30}$'
 PATTERN_VERSION=r'^[\d]{1,4}\.[\d]{1,4}\.[\d]{1,4}$'
 PATTERN_DESC=r'^[\w_]{1,30}$'
 RE_SPACE = re.compile('.*\s+$', re.M)
 class Completer(object):
+    """class for commandline auto-completion 
+
+        complete_XXXX    XXXX is commands     
+        ref: stackoverflow.com  
+    """
 
     def __init__(self):
         readline.set_completer_delims(' \t\n;')
@@ -130,11 +116,32 @@ class Completer(object):
             return [cmd + ' '][state]
         results = [c + ' ' for c in COMMANDS if c.startswith(cmd)] + [None]
         return results[state]
+
 def zipdir(path, ziph):
-    for root, dirs, files in os.walk(path):
-        for file in files:
-            ziph.write(os.path.join(root, file))
+    """zip all files include sub-directory and files it contain
+    @param path: target path
+    @param ziph: zip object 
+    @return: True success or False 
+    """
+    try:
+        for root, dirs, files in os.walk(path):
+            for file in files:
+                ziph.write(os.path.join(root, file))
+    except Exception, e:
+        print e 
+        return False
+    return True 
+    
+    
+
 def get_next_proj_seq(path):
+    """get next project sequence no. 
+
+        -PS003-  ---> return 4  
+
+    @param path: dir. path
+    @return: seq no
+    """
     #   PNSGit-PS001-VR0.3.2-DT20150301_111134-DSNone.zip    
     p=re.compile(PATTERN_ZIP)
     flist=[]
@@ -148,59 +155,96 @@ def get_next_proj_seq(path):
     ps =int(elements[1][2:])
     v1,v2,v3 = map(int,elements[2][2:].split('.'))
     return ps+1,"{}.{}.{}".format(v1,v2,v3+1)
-def create_deposit_filename(version='auto',desc='None'):
+
+def create_deposit_filename(desc='None',  version='auto'):
+    """get new deposit filename 
+
+        seq +1 and version +1  
+
+    @param version: version  format) N.N.N
+    @param desc: commit description 
+    @return: filename example) PNSGit-PS001-VR0.3.2-DT20150301_111134-DSNone.zip
+             fail return None,"err string"
+    """
     p_desc = re.compile(PATTERN_DESC)
     p_version = re.compile(PATTERN_VERSION)
-
+    if desc!='None' and not p_desc.match(desc) :
+        return None,"bad desc pattern"  
     if version!='auto' and not p_version.match(version) : 
         return None,"bad version pattern"
-    if desc!='None' and not p_desc.match(version) :
-        return None,"bad desc pattern"    
-
-    project_path = g['local_repository'] + g['project_name']+ '\\'
+      
+    project_path = g_property['local_repository'] + g_property['project_name']+ '\\'
     next_ps,next_vr = get_next_proj_seq(project_path)
     if version != 'auto': next_vr = version
-    PN = 'PN{0}'.format( g['project_name'] )
+    PN = 'PN{0}'.format( g_property['project_name'] )
     PS = 'PS{0:03}'.format( next_ps )
     VR = 'VR{0}'.format( next_vr )
     DT =  time.strftime( "DT%Y%m%d_%H%M%S", time.localtime())
     DC = 'DC{}'.format(desc)
     filename ="{}{}-{}-{}-{}-{}.zip".format(project_path,PN,PS,VR,DT,DC)
     return filename,"OK"   
-    # g[local_repository]+ "PNSGit-PS001-VR0.3.2-DT20150301_111124-DSNone.zip"
-def commit_local(version='auto',desc='None'):
-    filename,err = create_deposit_filename(version='auto',desc='None')
+
+def commit_local(desc='None',  version='auto'):
+    """make new deposit file 
+
+        make xxx.zip in project deposit path  
+
+    @param version: version  format) N.N.N
+    @param desc: commit description 
+    """
+    filename,err = create_deposit_filename(desc,version)
     if not filename : 
         print err 
         return False 
-    print filename 
-    
     with zipfile.ZipFile(filename, 'w') as zipf:
-        return zipdir('.', zipf)
+        if zipdir('.', zipf):
+            print "+created " + filename
+            return True 
+        else:
+            print "fail"
     return False
+
 def rollback(project_seq_no):
     return True
-def copy_file(src,dst):
-    return True
+
 def set_config(property , value):
-    if property in g:
+    """set property 
+    @param property: property
+    @param value: value
+    @return:
+    """
+    if property in g_property:
         if property=='local_repository':
             if not os.path.isdir(value) : return "not exist directory"
             if value.strip()[-1] != os.sep:
                 value+=os.sep
-        g[property] =  value
+        g_property[property] =  value
         return "success"
     else :
         return "undefined property"
+
 def show_config():
-    for p,v in g.items():
+    """print all properties and its values
+    """
+    for p,v in g_property.items():
         print p + '='+ v
+
 def get_config( property ):
-    if property in g:
-        return g[property]
+    """get value of property 
+
+        this function for 'get' command
+
+    @param property: property
+    @return: value or error string
+    """
+    if property in g_property:
+        return g_property[property]
     else :
         return "Undefined property"
+
 def load_config():
+    """load property from ini files 
+    """
     try:
         with open("config.ini",'r') as f:
             lines = f.readlines()
@@ -208,30 +252,55 @@ def load_config():
                 p,v = line.split('=')
                 p = p.strip()
                 v = v.strip()
-                if p in g.keys():
-                    g[p] = v 
+                if p in g_property.keys():
+                    g_property[p] = v 
     except (OSError, IOError) as e:
         save_config()
-    
-    # show_config()
+
 def save_config():
+    """save property to ini files
+    """
     with open('config.ini','w') as f :
-        for p,v in g.items():
+        for p,v in g_property.items():
             f.writelines( '{}={}\n'.format(p,v) )
-    # show_config()  
+
+def check_conifg():
+    """validate g_property
+    @return: False if there is bad property value
+    """
+    bBadPropertyFlag=False
+    for k,v in g_property.items():
+        if v=='None': 
+            print k,'=',v ,"-> should be set a value"
+            bBadPropertyFlag = True    
+    if bBadPropertyFlag:
+        return False 
+    if g_property['local_repository'][-1] != '\\':
+        g_property['local_repository'] +='\\'
+    if not os.path.isdir(g_property['local_repository']):
+        print "%s is not exist directory" % (g_property['local_repository'])
+        return False
+    return True  
+
 def show_commit_list():
-    return True
-def complete(text, state):
-    # print ">>>",text,state 
-    for cmd in COMMANDS:
-        if cmd.startswith(text):
-            if not state:
-                return cmd
-            else:
-                state -= 1
+    """print commit list 
+
+        print zip files in project repository
+
+    """
+    p=re.compile(PATTERN_ZIP)
+    path = g_property['local_repository'] + g_property['project_name'] + '\\'
+    print "#project_path = "+path
+    for f in glob.glob(path + '*.zip' )  :
+        filename = os.path.split(f)[1][:-4] #filename only
+        if p.match(filename) :
+            print filename
+
 def cmd_loop():
+    """command loop 
+    """
     while True:
-        prompt_text = '({})>'.format( g['project_name'] )
+        prompt_text = '({})>'.format( g_property['project_name'] )
         cmd_text = raw_input(prompt_text)
         cmd = cmd_text.split()
         if len(cmd) <= 0 :
@@ -250,17 +319,25 @@ def cmd_loop():
         elif cmd[0] =='showallproperty':
             show_config()
         elif cmd[0]=='commit':
-            commit_local()
+            desc='None'
+            version='auto'
+            if len(cmd) > 1 : desc=cmd[1]
+            if len(cmd) > 2 : version = cmd[2]
+            commit_local(desc,version)
         elif cmd[0]=='push':
-            project_path = g['local_repository'] + g['project_name']+ '\\'
-            push_remote( project_path, g['remote_repository_id'] )
+            project_path = g_property['local_repository'] + g_property['project_name']+ '\\'
+            push_remote( project_path, g_property['remote_repository_id'] )
+        elif cmd[0]=='showcommit':
+            show_commit_list()
         elif cmd[0]=='exit':
+            print 'bye~'
             break;
         elif cmd[0]=='version':
             print "ver 0.1.0"
         else:
             print "undefined command"
-def push_remote(local_path,remote_targetdir_id):
+
+def push_remote(local_path,remote_targetdir_id):    
     """copy local zip files to remote ( google drive )
 
         This function upload all zip-files in local_path except file which is same name on remote 
@@ -297,12 +374,11 @@ def push_remote(local_path,remote_targetdir_id):
             # raise            
     print "result: %d success %d fail" % (nSuccess,nFail)
     return nSuccess,nFail
+
 if __name__ == '__main__':
     # load ini file 
     load_config()
-
     check_conifg() 
-
     # for command auto-completion
     readline.set_completer_delims(' \t\n;')
     readline.parse_and_bind("tab: complete")
@@ -313,10 +389,3 @@ if __name__ == '__main__':
     cmd_loop()
     # save ini file 
     save_config()
-
-
-
-    
-
-    
-    
